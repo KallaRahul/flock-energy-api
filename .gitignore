@@ -1,10 +1,2 @@
 node_modules/
 .env
-cookies.json
-investigation_results.json
-portal_api_results.json
-meters_page.html
-meter_detail.html
-auth_cookies.json
-investigate*.js
-test_portal_apis.js
