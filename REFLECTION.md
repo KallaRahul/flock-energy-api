@@ -9,7 +9,7 @@
 - I assumed the 20-items-per-page search pagination is fixed and not configurable.
 
 **About the API design:**
-- I assumed downstream consumers want clean JSON with proper types (numbers as numbers, not strings) — so I normalise string-encoded numbers from the portal.
+- I assumed downstream consumers want clean JSON with proper types (numbers as numbers, not strings) — so I normalise string-encoded numbers from the portal and provide ISO 8601 timestamps (`isoTimestamp`).
 - I assumed session management should be transparent to API consumers — they shouldn't need to know about portal cookies or re-authentication flows.
 - I assumed the hierarchy endpoint can afford to be slow (~30-60s) since it fetches all meters. In production this would need caching.
 
@@ -31,13 +31,9 @@ I got unstuck by systematically inspecting the SvelteKit client JavaScript bundl
 
 2. **Transformers endpoint** — I observed the transformers page exists with columns (Code, Name, Feeder, Capacity kVA) and an "Export all meters" button. Discovering the client-side data source for this would unlock a bulk-fetch path.
 
-3. **ISO 8601 timestamps** — Convert the portal's `DD/MM/YYYY HH:mm` timestamps to ISO 8601 format (`2026-06-24T06:00:00+05:30`) for better downstream interoperability.
+3. **Rate limiting and connection pooling** — Add request throttling and a connection pool/queue to prevent overwhelming the upstream portal during spike traffic.
 
-4. **Unit tests** — Add tests with mocked portal responses to verify the SvelteKit data parser handles both Format A (`classData`) and Format B (indexed `data` arrays) correctly.
-
-5. **Rate limiting and connection pooling** — The current implementation creates a fresh HTTP request for each API call. A connection pool and request queue would prevent overwhelming the upstream portal.
-
-6. **Full dataset extraction** — Implement a background job that crawls all meters, their details, locations, and consumption data into a local SQLite database, enabling cross-attribute queries the portal can't do.
+4. **Full dataset extraction & local sync** — Implement a background worker to sync all meters, locations, and consumption data into SQLite/Postgres for cross-attribute filtering.
 
 ## What mistake did you make while solving this (there's always one)?
 
@@ -49,12 +45,9 @@ My second mistake was overcomplicating the data extraction. I initially tried to
 
 1. **No caching** — Every API call hits the upstream portal. For a production service, this is unacceptable. At minimum, meter details (which rarely change) should be cached.
 
-2. **No tests** — The submission lacks automated tests. The SvelteKit data parser, especially the two-format normalisation logic, deserves unit tests with fixtures from actual portal responses.
+2. **Session mutex added, but single account connection** — An in-flight promise lock (`_loginPromise`) was implemented to eliminate concurrent re-auth race conditions, but the service relies on a single shared operator account.
 
-3. **Session is a singleton** — The portal client uses a single shared session. If two API requests arrive simultaneously and both trigger re-authentication, there's a race condition. A proper implementation would use a mutex/semaphore around the login flow.
+3. **Hierarchy endpoint scalability** — The hierarchy endpoint fetches every meter sequentially, then fetches each meter's detail. With 300+ meters, this takes 30-60 seconds. A production version would need background indexing and a cached tree.
 
-4. **No rate limiting on our API** — The service doesn't throttle incoming requests, which could cause it to flood the upstream portal.
+4. **Transformers data incomplete** — I identified the transformers page but didn't fully reverse-engineer its client-side data loading, so I haven't exposed a `/api/v1/transformers` endpoint. The data is visible in the browser but the programmatic path remains partially unmapped.
 
-5. **Hierarchy endpoint scalability** — The hierarchy endpoint fetches every meter sequentially, then fetches each meter's detail. With 300+ meters, this takes 30-60 seconds. A production version would need background indexing and a cached tree.
-
-6. **Transformers data incomplete** — I identified the transformers page but didn't fully reverse-engineer its client-side data loading, so I haven't exposed a `/api/v1/transformers` endpoint. The data is visible in the browser but the programmatic path remains partially unmapped.

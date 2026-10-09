@@ -22,13 +22,15 @@ function createRouter(portalClient) {
    * The service authenticates automatically, but this lets callers
    * verify connectivity on demand.
    */
-  router.post('/auth/login', async (_req, res, next) => {
+  router.post('/auth/login', async (req, res, next) => {
     try {
-      const ok = await portalClient.login();
+      const email = req.body?.email || req.body?.username || portalClient.email;
+      const password = req.body?.password || portalClient.password;
+      const ok = await portalClient.login(email, password);
       if (!ok) {
         return res.status(401).json({ error: 'Portal authentication failed' });
       }
-      res.json({ message: 'Authenticated successfully' });
+      res.json({ message: 'Authenticated successfully', authenticated: true });
     } catch (err) {
       next(err);
     }
@@ -59,7 +61,11 @@ function createRouter(portalClient) {
   router.get('/meters', async (req, res, next) => {
     try {
       const { q = '', page = '1' } = req.query;
-      const result = await portalClient.searchMeters(q, parseInt(page, 10));
+      const pageNum = parseInt(page, 10);
+      if (isNaN(pageNum) || pageNum < 1) {
+        return res.status(400).json({ error: 'Invalid page parameter' });
+      }
+      const result = await portalClient.searchMeters(q, pageNum);
       res.json(result);
     } catch (err) {
       next(err);
@@ -76,8 +82,8 @@ function createRouter(portalClient) {
       const detail = await portalClient.getMeterDetail(req.params.id);
       res.json(detail);
     } catch (err) {
-      if (err.statusCode === 404) {
-        return res.status(404).json({ error: err.message });
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message });
       }
       next(err);
     }
@@ -92,6 +98,9 @@ function createRouter(portalClient) {
       const location = await portalClient.getMeterLocation(req.params.id);
       res.json({ meterId: req.params.id, location });
     } catch (err) {
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       next(err);
     }
   });
@@ -110,6 +119,9 @@ function createRouter(portalClient) {
         readings,
       });
     } catch (err) {
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       next(err);
     }
   });

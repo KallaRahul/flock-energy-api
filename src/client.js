@@ -79,18 +79,19 @@ class UrjaPortalClient {
    * Log in to the portal.
    * The portal uses better-auth: POST /login with form-urlencoded
    * email + password. On success a __Secure-better-auth.session_token
-   * cookie is set and the response is 200 (with a redirect in body
-   * handled client-side).
+   * cookie is set and the response is 200.
    *
+   * @param {string} [email=this.email]
+   * @param {string} [password=this.password]
    * @returns {Promise<boolean>} true if login succeeded
    */
-  async login() {
+  async login(email = this.email, password = this.password) {
     // GET login page first to pick up any initial cookies
-    const loginPage = await this._request('GET', '/login');
+    await this._request('GET', '/login');
 
     const body = new URLSearchParams();
-    body.append('email', this.email);
-    body.append('password', this.password);
+    body.append('email', email);
+    body.append('password', password);
 
     const resp = await this._request('POST', '/login', {
       data: body.toString(),
@@ -108,12 +109,26 @@ class UrjaPortalClient {
 
   /**
    * Ensure we have a valid session. If the session has expired or we
-   * haven't authenticated yet, re-login.
+   * haven't authenticated yet, re-login using a shared promise lock
+   * to avoid race conditions during concurrent requests.
    */
   async ensureAuth() {
-    if (!this.authenticated) {
-      const ok = await this.login();
-      if (!ok) throw new Error('Portal authentication failed');
+    if (this.authenticated) return;
+
+    if (this._loginPromise) {
+      await this._loginPromise;
+      return;
+    }
+
+    this._loginPromise = this.login().finally(() => {
+      this._loginPromise = null;
+    });
+
+    const ok = await this._loginPromise;
+    if (!ok) {
+      const err = new Error('Portal authentication failed');
+      err.statusCode = 401;
+      throw err;
     }
   }
 
@@ -163,17 +178,25 @@ class UrjaPortalClient {
     );
 
     if (resp.status !== 200) {
-      throw new Error(`Search failed with status ${resp.status}`);
+      const err = new Error(`Search failed with status ${resp.status}`);
+      err.statusCode = resp.status;
+      throw err;
     }
 
     const raw = resp.data;
     const meters = (raw.data || []).map((m) => ({
       meterId: m.meterId,
+      meter_id: m.meterId,
       serialNo: m.serialNo,
+      serial_number: m.serialNo,
       make: m.make,
       phaseType: m.phaseType,
+      phase_type: m.phaseType,
       installStatus: m.installStatus,
+      install_status: m.installStatus,
+      status: m.installStatus,
       dtCode: m.dtCode,
+      dt_code: m.dtCode,
     }));
 
     return {
@@ -185,7 +208,7 @@ class UrjaPortalClient {
   }
 
   /**
-   * Get detailed meter info including nameplate and network hierarchy.
+   * Get detailed meter info including nameplate, network hierarchy, and location.
    * Portal endpoint: GET /meters/{id}/__data.json (SvelteKit data)
    *
    * The SvelteKit dehydration format encodes data as a positional array
@@ -196,13 +219,19 @@ class UrjaPortalClient {
    * @returns {Promise<object>} Normalised meter detail
    */
   async getMeterDetail(meterId) {
-    const resp = await this._authedGet(`/meters/${meterId}/__data.json`);
+    const [detailResp, locationResult] = await Promise.allSettled([
+      this._authedGet(`/meters/${meterId}/__data.json`),
+      this.getMeterLocation(meterId),
+    ]);
 
-    if (resp.status !== 200) {
-      throw new Error(`Meter detail request failed: ${resp.status}`);
+    if (detailResp.status !== 'fulfilled' || detailResp.value.status !== 200) {
+      const status = detailResp.value?.status || 500;
+      const err = new Error(`Meter detail request failed: ${status}`);
+      err.statusCode = status;
+      throw err;
     }
 
-    const body = resp.data;
+    const body = detailResp.value.data;
 
     // Find the meter data node (index 2 in nodes array)
     const meterNode = body?.nodes?.[2];
@@ -213,7 +242,53 @@ class UrjaPortalClient {
       throw err;
     }
 
-    return this._parseMeterNode(meterId, meterNode);
+    const parsed = this._parseMeterNode(meterId, meterNode);
+    const location =
+      locationResult.status === 'fulfilled'
+        ? locationResult.value.location
+        : { latitude: null, longitude: null };
+
+    const np = parsed.nameplate || {};
+    const serialNumber =
+      np['Serial No'] ||
+      np['SerialNo'] ||
+      np['serial_number'] ||
+      np['serialNo'] ||
+      'N/A';
+    const status =
+      np['Installation Status'] ||
+      np['InstallationStatus'] ||
+      np['status'] ||
+      np['installStatus'] ||
+      'UNKNOWN';
+    const make = np['Make'] || np['make'] || 'N/A';
+    const phaseType =
+      np['Phase Type'] || np['PhaseType'] || np['phaseType'] || 'N/A';
+
+    const hierarchy = parsed.hierarchy || {};
+    const dtCode =
+      hierarchy['DT'] ||
+      hierarchy['dtCode'] ||
+      hierarchy['dt_code'] ||
+      'N/A';
+
+    return {
+      meterId,
+      meter_id: meterId,
+      serialNo: serialNumber,
+      serial_number: serialNumber,
+      make,
+      phaseType,
+      phase_type: phaseType,
+      installStatus: status,
+      install_status: status,
+      status,
+      dtCode,
+      dt_code: dtCode,
+      location,
+      nameplate: np,
+      hierarchy,
+    };
   }
 
   /**
@@ -309,13 +384,34 @@ class UrjaPortalClient {
   async getMeterLocation(meterId) {
     const resp = await this._authedGet(`/portal/meters/${meterId}/geo`);
     if (resp.status !== 200) {
-      throw new Error(`Geo request failed: ${resp.status}`);
+      const err = new Error(`Geo request failed: ${resp.status}`);
+      err.statusCode = resp.status;
+      throw err;
     }
     const raw = resp.data?.data || {};
+    const lat = parseFloat(raw.latitude) || null;
+    const lng = parseFloat(raw.longitude) || null;
     return {
-      latitude: parseFloat(raw.latitude) || null,
-      longitude: parseFloat(raw.longitude) || null,
+      meterId,
+      meter_id: meterId,
+      location: {
+        latitude: lat,
+        longitude: lng,
+      },
+      latitude: lat,
+      longitude: lng,
     };
+  }
+
+  /**
+   * Convert DD/MM/YYYY HH:mm IST timestamp to ISO 8601 string.
+   */
+  _toIsoTimestamp(tsStr) {
+    if (!tsStr) return null;
+    const match = tsStr.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    const [, day, month, year, hours, minutes] = match;
+    return `${year}-${month}-${day}T${hours}:${minutes}:00+05:30`;
   }
 
   /**
@@ -324,20 +420,28 @@ class UrjaPortalClient {
    * Returns: { data: [{ timestamp, kwh, kvah, voltR }] }
    *
    * @param {string} meterId
-   * @returns {Promise<object[]>} Array of readings with numeric types
+   * @returns {Promise<object[]>} Array of readings with numeric types and ISO timestamps
    */
   async getMeterConsumption(meterId) {
     const resp = await this._authedGet(`/portal/meters/${meterId}/energy`);
     if (resp.status !== 200) {
-      throw new Error(`Energy request failed: ${resp.status}`);
+      const err = new Error(`Energy request failed: ${resp.status}`);
+      err.statusCode = resp.status;
+      throw err;
     }
     const raw = resp.data?.data || [];
-    return raw.map((r) => ({
-      timestamp: r.timestamp || null,
-      kwh: r.kwh ? parseFloat(r.kwh) : null,
-      kvah: r.kvah ? parseFloat(r.kvah) : null,
-      voltR: r.voltR ? parseFloat(r.voltR) : null,
-    }));
+    return raw.map((r) => {
+      const iso = this._toIsoTimestamp(r.timestamp);
+      return {
+        timestamp: r.timestamp || null,
+        isoTimestamp: iso,
+        iso_timestamp: iso,
+        kwh: r.kwh ? parseFloat(r.kwh) : null,
+        kvah: r.kvah ? parseFloat(r.kvah) : null,
+        voltR: r.voltR ? parseFloat(r.voltR) : null,
+        volt_r: r.voltR ? parseFloat(r.voltR) : null,
+      };
+    });
   }
 
   /**

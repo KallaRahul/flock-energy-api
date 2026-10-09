@@ -94,6 +94,13 @@ flock-api-submission/
    PORTAL_PASSWORD=urja-ops-2026
    ```
 
+### Running Tests
+
+- **Run unit and integration test suite**:
+  ```bash
+  npm test
+  ```
+
 ### Running the API
 
 - **Start production server**:
@@ -208,6 +215,7 @@ curl http://localhost:3000/api/v1/meters/J100001/consumption
   "readings": [
     {
       "timestamp": "23/06/2026 23:30",
+      "isoTimestamp": "2026-06-23T23:30:00+05:30",
       "kwh": 42594.05,
       "kvah": 46001.58,
       "voltR": 231

@@ -56,15 +56,17 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// ── Start server ──
-app.listen(config.port, () => {
-  console.log(`\n  🔌 Flock Energy — Urja Meter API`);
-  console.log(`  ─────────────────────────────────`);
-  console.log(`  API:    http://localhost:${config.port}/api/v1`);
-  console.log(`  Docs:   http://localhost:${config.port}/docs`);
-  console.log(`  Spec:   http://localhost:${config.port}/openapi.json`);
-  console.log(`  Health: http://localhost:${config.port}/health`);
-  console.log(`  ─────────────────────────────────\n`);
-});
+// ── Start server if run directly ──
+if (require.main === module) {
+  app.listen(config.port, () => {
+    console.log(`\n  🔌 Flock Energy — Urja Meter API`);
+    console.log(`  ─────────────────────────────────`);
+    console.log(`  API:    http://localhost:${config.port}/api/v1`);
+    console.log(`  Docs:   http://localhost:${config.port}/docs`);
+    console.log(`  Spec:   http://localhost:${config.port}/openapi.json`);
+    console.log(`  Health: http://localhost:${config.port}/health`);
+    console.log(`  ─────────────────────────────────\n`);
+  });
+}
 
 module.exports = app;

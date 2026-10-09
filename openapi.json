@@ -276,17 +276,32 @@
         "type": "object",
         "properties": {
           "meterId": { "type": "string", "example": "J100001" },
+          "meter_id": { "type": "string", "example": "J100001" },
           "serialNo": { "type": "string", "example": "GE84132" },
+          "serial_number": { "type": "string", "example": "GE84132" },
           "make": { "type": "string", "example": "L&T" },
-          "phaseType": { "type": "string", "enum": ["single", "three"], "example": "single" },
-          "installStatus": { "type": "string", "enum": ["Installed", "Faulty", "Decommissioned"], "example": "Installed" },
-          "dtCode": { "type": "string", "example": "DT-002" }
+          "phaseType": { "type": "string", "example": "single" },
+          "phase_type": { "type": "string", "example": "single" },
+          "installStatus": { "type": "string", "example": "Installed" },
+          "install_status": { "type": "string", "example": "Installed" },
+          "status": { "type": "string", "example": "Installed" },
+          "dtCode": { "type": "string", "example": "DT-002" },
+          "dt_code": { "type": "string", "example": "DT-002" }
         }
       },
       "MeterDetail": {
         "type": "object",
         "properties": {
           "meterId": { "type": "string", "example": "J100001" },
+          "meter_id": { "type": "string", "example": "J100001" },
+          "serialNo": { "type": "string", "example": "GE84132" },
+          "serial_number": { "type": "string", "example": "GE84132" },
+          "status": { "type": "string", "example": "Installed" },
+          "installStatus": { "type": "string", "example": "Installed" },
+          "make": { "type": "string", "example": "L&T" },
+          "phaseType": { "type": "string", "example": "single" },
+          "dtCode": { "type": "string", "example": "Mansarovar DT 2 (DT-002)" },
+          "location": { "$ref": "#/components/schemas/GeoLocation" },
           "nameplate": {
             "type": "object",
             "description": "Meter nameplate / technical data",
@@ -324,10 +339,13 @@
       "EnergyReading": {
         "type": "object",
         "properties": {
-          "timestamp": { "type": "string", "example": "24/06/2026 06:00" },
+          "timestamp": { "type": "string", "example": "24/06/2026 06:00", "description": "Original portal timestamp (DD/MM/YYYY HH:mm)" },
+          "isoTimestamp": { "type": "string", "format": "date-time", "example": "2026-06-24T06:00:00+05:30", "description": "Standardized ISO 8601 timestamp with IST offset (+05:30)" },
+          "iso_timestamp": { "type": "string", "format": "date-time", "example": "2026-06-24T06:00:00+05:30" },
           "kwh": { "type": "number", "format": "double", "example": 42599.42, "description": "Cumulative kilowatt-hours" },
           "kvah": { "type": "number", "format": "double", "example": 46007.38, "description": "Cumulative kilovolt-ampere-hours" },
-          "voltR": { "type": "number", "format": "double", "example": 232, "description": "R-phase voltage" }
+          "voltR": { "type": "number", "format": "double", "example": 232, "description": "R-phase voltage" },
+          "volt_r": { "type": "number", "format": "double", "example": 232 }
         }
       },
       "Error": {
